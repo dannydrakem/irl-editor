@@ -1,9 +1,9 @@
 package org.qualet.irlredactor.light.auto;
 
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.RedstoneWireBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RedStoneWireBlock;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -109,14 +109,14 @@ public final class BlockLightDefs
      *  emits) plus non-luminous special cases (powered redstone dust). */
     public static Def resolve(BlockState state)
     {
-        if (state.getLuminance() > 0)
+        if (state.getLightEmission() > 0)
         {
             return DEFS.get(state.getBlock());
         }
         // Non-luminous special cases (vanilla getLuminance() == 0):
-        if (state.isOf(Blocks.REDSTONE_WIRE))
+        if (state.is(Blocks.REDSTONE_WIRE))
         {
-            int power = state.get(RedstoneWireBlock.POWER);
+            int power = state.getValue(RedStoneWireBlock.POWER);
             return power > 0 ? REDSTONE_BY_POWER[power] : null;
         }
         return null;
@@ -126,7 +126,7 @@ public final class BlockLightDefs
      *  yield an auto-light (the exact decision is {@link #resolve}). */
     public static boolean paletteCandidate(BlockState state)
     {
-        return state.getLuminance() > 0 || state.isOf(Blocks.REDSTONE_WIRE);
+        return state.getLightEmission() > 0 || state.is(Blocks.REDSTONE_WIRE);
     }
 
     static
@@ -186,22 +186,7 @@ public final class BlockLightDefs
         // --- candles (warm flame; one entry per dyed variant) ---------------
         float cr = 1.00f, cg = 0.70f, cb = 0.35f, ci = 0.8f, crad = 8f;
         put(Blocks.CANDLE,            cr, cg, cb, ci, crad);
-        put(Blocks.WHITE_CANDLE,      cr, cg, cb, ci, crad);
-        put(Blocks.ORANGE_CANDLE,     cr, cg, cb, ci, crad);
-        put(Blocks.MAGENTA_CANDLE,    cr, cg, cb, ci, crad);
-        put(Blocks.LIGHT_BLUE_CANDLE, cr, cg, cb, ci, crad);
-        put(Blocks.YELLOW_CANDLE,     cr, cg, cb, ci, crad);
-        put(Blocks.LIME_CANDLE,       cr, cg, cb, ci, crad);
-        put(Blocks.PINK_CANDLE,       cr, cg, cb, ci, crad);
-        put(Blocks.GRAY_CANDLE,       cr, cg, cb, ci, crad);
-        put(Blocks.LIGHT_GRAY_CANDLE, cr, cg, cb, ci, crad);
-        put(Blocks.CYAN_CANDLE,       cr, cg, cb, ci, crad);
-        put(Blocks.PURPLE_CANDLE,     cr, cg, cb, ci, crad);
-        put(Blocks.BLUE_CANDLE,       cr, cg, cb, ci, crad);
-        put(Blocks.BROWN_CANDLE,      cr, cg, cb, ci, crad);
-        put(Blocks.GREEN_CANDLE,      cr, cg, cb, ci, crad);
-        put(Blocks.RED_CANDLE,        cr, cg, cb, ci, crad);
-        put(Blocks.BLACK_CANDLE,      cr, cg, cb, ci, crad);
+        Blocks.DYED_CANDLE.forEach(block -> put(block, cr, cg, cb, ci, crad));
 
         // Redstone dust: ОЧЕНЬ слабое красное свечение, растёт с уровнем сигнала.
         // Non-shadowing. intensity ~0.06..0.18, radius ~2..4.5 (× global sliders).

@@ -968,14 +968,15 @@ float irlite_pointShadow(vec3 fragWorld, vec3 normal, IrliteLight light, bool fa
     Loff = (dot(Loff, Loff) > 1e-12) ? normalize(Loff) : nN;
     float normalOff = (IRLITE_SHADOW_NORMAL_OFFSET <= 0.0) ? 0.0
 #ifdef IRLITE_SHADOW_PREFILTER
-                    // slope-scaled: ~0.25 texel facing the light (keeps contact shadows attached),
-                    // growing to ~1.25 texel at grazing angles — kills the texel-staircase acne
-                    // rings (concentric squares) that show at Softness 0 on side-face zones
-                    : 0.25 * texelWorld / max(dot(nN, Loff), 0.2);
+                    // Normal-only receiver offset. The old (n+L) displacement doubled the
+                    // depth shift on front faces and reached ~1.5 texels at grazing angles,
+                    // detaching point shadows into a bright silhouette halo. Keep a constant
+                    // quarter-texel depth relief and cap the world-space side shift.
+                    : min(0.25 * texelWorld / max(dot(nN, Loff), 0.2), 0.75 * texelWorld);
 #else
                     : max(IRLITE_SHADOW_NORMAL_OFFSET, 1.5 * texelWorld);
 #endif
-    fragWorld += (nN + Loff) * normalOff;
+    fragWorld += nN * normalOff;
 
     vec3 dir = fragWorld - lp;
     float refDist = length(dir);
@@ -1135,17 +1136,17 @@ float irlite_pointShadow(vec3 fragWorld, vec3 normal, IrliteLight light, bool fa
     float penumbra = max(penumbraPhys, minPen);
 
     #ifdef IRLITE_SHADOW_PREFILTER
-    // Wide penumbra: one trilinear Hamburger-MSM fetch through the CUBE_MAP_ARRAY texture
-    // view — seamless cubemap filtering crosses face edges in hardware at every mip, so no
-    // face-uv math, clamp margins or neighbour blending is needed on the sampling side.
+    // Wide penumbra: one trilinear Hamburger-MSM fetch through the CUBE_MAP_ARRAY texture.
+    // Narrow/contact shadows stay on full-resolution gather-PCF below: the MSM base is
+    // pre-blurred by roughly four depth texels, so using it unconditionally turns a strong
+    // point light into a bright contour around every blocker even at zero softness.
+    float irlPreVis = -1.0;
+    float irlPreW = 0.0;
     {
         float penTexP = penumbra / texelWorld;
         float evsmResP = irlPtEvsmRes(tier);
-        // NO penumbra threshold for points (unlike spot): the binary depth test self-shadows
-        // ("grainy square" = acne on the side cube faces at grazing angles) — Chebyshev has no
-        // binary test and eats the acne by construction, so EVSM serves ALL point penumbras;
-        // the ~4-depth-texel base blur is below the point map's own texel coarseness anyway
-        if (evsmResP * 2.0 == faceRes)   // size gate: matching irl-core build
+        float minPenM = IRLITE_PREFILTER_MIN_PEN;
+        if (penTexP >= minPenM && evsmResP * 2.0 == faceRes)   // size gate: matching irl-core build
         {
             float lodP = clamp(log2(penTexP * 0.25), 0.0, float(findMSB(int(faceRes)) - 1));
             {
@@ -1157,12 +1158,14 @@ float irlite_pointShadow(vec3 fragWorld, vec3 normal, IrliteLight light, bool fa
                 float vis = irlite_msmHamburger(vec4(mm.x, mm.y, -mm.z, mm.w),
                                                 linZ - IRLITE_MSM_DEPTH_BIAS);
                 vis = clamp((vis - IRLITE_EVSM_BLEED_POINT) / (1.0 - IRLITE_EVSM_BLEED_POINT), 0.0, 1.0);
-                return vis;   // points: MSM everywhere (Hamburger resolves bimodal penumbra overlap)
+                irlPreW = smoothstep(minPenM, minPenM * 1.5, penTexP);
+                if (irlPreW >= 1.0) return vis;
+                irlPreVis = vis;
                 }
             }
         }
     }
-    if (blockerCount == 0) return 1.0;   // MSM gate failed: restore the legacy no-blocker exit before the PCF loop
+    if (blockerCount == 0) return 1.0;
     #endif
 
     float phiPcf = irlite_rotationPhi(1);   // independent sequence: decorrelates the PCF disk from the blocker disk
@@ -1182,7 +1185,11 @@ float irlite_pointShadow(vec3 fragWorld, vec3 normal, IrliteLight light, bool fa
     for (int i = 0; i < pcfN; i++)
     {
         #ifdef IRLITE_SHADOW_EARLY_OUT
-            if (i == 4 && (sum <= 1e-3 || sum >= 4.0 - 1e-3)) return sum * 0.25;   // fully shadowed / fully lit after the first 4 probe taps
+            #ifdef IRLITE_SHADOW_PREFILTER
+                if (irlPreVis < 0.0 && i == 4 && (sum <= 1e-3 || sum >= 4.0 - 1e-3)) return sum * 0.25;
+            #else
+                if (i == 4 && (sum <= 1e-3 || sum >= 4.0 - 1e-3)) return sum * 0.25;
+            #endif
         #endif
         int t = (i * perm) % pcfN;   // permutation spreads the 4 probe taps across the disk radius; full-loop sum unchanged (bijection)
         vec2 off = irlite_vogel(t, pcfN, phiPcf) * penumbra;
@@ -1201,6 +1208,9 @@ float irlite_pointShadow(vec3 fragWorld, vec3 normal, IrliteLight light, bool fa
         // when the physical penumbra is below the texel floor, sharpen the anti-aliased edge back (Photon linear_step pattern)
         float sharpen = 0.4 * max((minPen - penumbraPhys) / max(minPen, 1e-6), 0.0);   // 1e-6 guard: minPen -> 0 when fragWorld == lp
         shadow = clamp((shadow - sharpen) / max(1.0 - 2.0 * sharpen, 1e-4), 0.0, 1.0);
+    #endif
+    #ifdef IRLITE_SHADOW_PREFILTER
+        if (irlPreVis >= 0.0) shadow = mix(shadow, irlPreVis, irlPreW);
     #endif
     return shadow;
 #else
@@ -1280,7 +1290,7 @@ vec3 irlite_outlineInk(vec3 playerPos, vec3 flatNormal, bool isEntity, uint repl
         bool own = (meta.x & 2u) != 0u;
         uint flags = own ? irlite_profiles[i].c.w : irlite_vlC.w;
         bool live = own || IRLITE_GLOBALS_OK;
-        bool enabled = live ? (flags & 256u) != 0u : true;
+        bool enabled = live ? (flags & 256u) != 0u : false;
         uint target = live ? ((flags >> 11u) & 3u) : uint(IRLITE_OUTLINE_TARGET);
         if (!enabled || (target == 1u && !isEntity) || (target == 2u && isEntity) || !irlite_matchesOutlineReplay(meta, replay)) continue;
 

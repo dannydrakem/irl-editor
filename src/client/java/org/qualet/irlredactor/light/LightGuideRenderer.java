@@ -1,12 +1,12 @@
 package org.qualet.irlredactor.light;
 
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.RenderLayers;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.math.Vec3d;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.client.Camera;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.world.phys.Vec3;
 import org.qualet.irl.light.LightMath;
 import org.qualet.irlredactor.editor.LightEditorScreen;
 
@@ -17,15 +17,10 @@ import org.qualet.irlredactor.editor.LightEditorScreen;
  * lights draw a small position cross. The BBS-free stand-in for IRLite's dropped
  * {@code LightGuideRenderer}.
  *
- * <p>1.21.11 port: the 1.20.4 path (Tessellator + a hand-managed RenderSystem GL
- * state + the {@code WorldRenderEvents.LAST} hook) is gone — the render-pipeline
- * rework removed {@code RenderSystem.setShader}/blend/depth/line-width and the
- * Fabric rendering API replaced {@code LAST} with phase-named events. Guides now
- * emit into the world renderer's own {@code VertexConsumerProvider} via the
- * vanilla {@code RenderLayers.lines()} layer at {@code BEFORE_DEBUG_RENDER}, the
- * event Fabric documents for "lines, overlays and other content similar to
- * vanilla debug renders". Coordinates are camera-relative (the consumers
- * convention), transformed by the event's world matrix.</p>
+ * <p>26.2 uses render extraction and submission. Guides are registered at
+ * {@code LevelRenderEvents.BEFORE_GIZMOS} and submitted as custom geometry through
+ * the level renderer's {@code SubmitNodeCollector}, using the vanilla
+ * {@code RenderTypes.lines()} layer. Coordinates are camera-relative.</p>
  *
  * <p>TODO(1.21.11): the {@code lines()} layer is depth-tested, so guides are now
  * occluded by terrain instead of the old x-ray look — restoring "always visible"
@@ -49,12 +44,10 @@ public final class LightGuideRenderer
 
     public static void register()
     {
-        // BEFORE_DEBUG_RENDER = Fabric's recommended hook for debug-style lines;
-        // the world renderer flushes its line buffer right after.
-        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(LightGuideRenderer::onRender);
+        LevelRenderEvents.BEFORE_GIZMOS.register(LightGuideRenderer::onRender);
     }
 
-    private static void onRender(WorldRenderContext ctx)
+    private static void onRender(LevelRenderContext ctx)
     {
         if (broken || !LightConfig.showGuides || LightScene.count() == 0)
         {
@@ -72,7 +65,7 @@ public final class LightGuideRenderer
         }
     }
 
-    private static void renderGuides(WorldRenderContext ctx)
+    private static void renderGuides(LevelRenderContext ctx)
     {
         // When the editor overlay is up it draws the richer ImGui guides itself
         // (GuideOverlay) — suppress this in-world wire pass so they don't double up.
@@ -82,55 +75,52 @@ public final class LightGuideRenderer
             return;
         }
 
-        Camera cam = ctx.gameRenderer().getCamera();
+        Camera cam = ctx.gameRenderer().mainCamera();
         if (cam == null)
         {
             return;
         }
 
-        Vec3d c = cam.getCameraPos();
-        MatrixStack ms = ctx.matrices();
+        Vec3 c = cam.position();
+        PoseStack ms = ctx.poseStack();
         if (ms == null)
         {
             return;
         }
-        MatrixStack.Entry entry = ms.peek();
-
-        // Vanilla line layer (POSITION_COLOR_NORMAL); the world renderer owns the
-        // flush, so we only emit segments here.
-        VertexConsumer buf = ctx.consumers().getBuffer(RenderLayers.lines());
-
-        for (PlacedLight l : LightScene.all())
+        ctx.submitNodeCollector().submitCustomGeometry(ms, RenderTypes.lines(), (entry, buf) ->
         {
-            if (l == null)
+            for (PlacedLight l : LightScene.all())
             {
-                continue;
-            }
+                if (l == null)
+                {
+                    continue;
+                }
 
-            float r = vis(l.r), g = vis(l.g), b = vis(l.b);
-            float x = (float) (l.x - c.x);
-            float y = (float) (l.y - c.y);
-            float z = (float) (l.z - c.z);
+                float r = vis(l.r), g = vis(l.g), b = vis(l.b);
+                float x = (float) (l.x - c.x);
+                float y = (float) (l.y - c.y);
+                float z = (float) (l.z - c.z);
 
-            if (l.type == PlacedLight.Type.SPOT)
-            {
-                drawSpot(buf, entry, x, y, z, l, r, g, b);
+                if (l.type == PlacedLight.Type.SPOT)
+                {
+                    drawSpot(buf, entry, x, y, z, l, r, g, b);
+                }
+                else
+                {
+                    drawPoint(buf, entry, x, y, z, r, g, b);
+                }
             }
-            else
-            {
-                drawPoint(buf, entry, x, y, z, r, g, b);
-            }
-        }
+        });
     }
 
-    private static void drawPoint(VertexConsumer buf, MatrixStack.Entry e, float x, float y, float z, float r, float g, float b)
+    private static void drawPoint(VertexConsumer buf, PoseStack.Pose e, float x, float y, float z, float r, float g, float b)
     {
         line(buf, e, x - POINT_CROSS, y, z, x + POINT_CROSS, y, z, r, g, b);
         line(buf, e, x, y - POINT_CROSS, z, x, y + POINT_CROSS, z, r, g, b);
         line(buf, e, x, y, z - POINT_CROSS, x, y, z + POINT_CROSS, r, g, b);
     }
 
-    private static void drawSpot(VertexConsumer buf, MatrixStack.Entry e, float x, float y, float z, PlacedLight l, float r, float g, float b)
+    private static void drawSpot(VertexConsumer buf, PoseStack.Pose e, float x, float y, float z, PlacedLight l, float r, float g, float b)
     {
         // Normalized direction (defaults straight down when degenerate).
         float[] dir = LightMath.normalizeDir(l.dirX, l.dirY, l.dirZ, 0f, -1f, 0f, new float[3]);
@@ -179,7 +169,7 @@ public final class LightGuideRenderer
     /** Emit one camera-relative segment into the line consumer. The POSITION_COLOR_NORMAL
      *  format needs a normal per vertex; the line direction is the natural choice
      *  (matches vanilla debug-line rendering). */
-    private static void line(VertexConsumer buf, MatrixStack.Entry e, float x1, float y1, float z1, float x2, float y2, float z2, float r, float g, float b)
+    private static void line(VertexConsumer buf, PoseStack.Pose e, float x1, float y1, float z1, float x2, float y2, float z2, float r, float g, float b)
     {
         float nx = x2 - x1, ny = y2 - y1, nz = z2 - z1;
         float nl = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
@@ -194,8 +184,8 @@ public final class LightGuideRenderer
         // The lines layer uses POSITION_COLOR_NORMAL_LINE_WIDTH — the per-vertex
         // LineWidth element is mandatory (omitting it throws "Missing elements in
         // vertex: LineWidth"), so it must be written on every vertex.
-        buf.vertex(e.getPositionMatrix(), x1, y1, z1).color(r, g, b, 1f).normal(e, nx, ny, nz).lineWidth(LINE_WIDTH);
-        buf.vertex(e.getPositionMatrix(), x2, y2, z2).color(r, g, b, 1f).normal(e, nx, ny, nz).lineWidth(LINE_WIDTH);
+        buf.addVertex(e.pose(), x1, y1, z1).setColor(r, g, b, 1f).setNormal(e, nx, ny, nz).setLineWidth(LINE_WIDTH);
+        buf.addVertex(e.pose(), x2, y2, z2).setColor(r, g, b, 1f).setNormal(e, nx, ny, nz).setLineWidth(LINE_WIDTH);
     }
 
     /** Clamp to [0,1] with a floor so a very dark light still has a visible guide. */

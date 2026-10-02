@@ -6,7 +6,7 @@ import imgui.ImGui;
 import imgui.ImGuiIO;
 import imgui.gl3.ImGuiImplGl3;
 import imgui.glfw.ImGuiImplGlfw;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 import org.qualet.irlredactor.IRLRedactorMod;
 
 import java.io.File;
@@ -59,7 +59,7 @@ public final class ImGuiRuntime
 
         try
         {
-            long handle = MinecraftClient.getInstance().getWindow().getHandle();
+            long handle = Minecraft.getInstance().getWindow().handle();
 
             ImGui.createContext();
 

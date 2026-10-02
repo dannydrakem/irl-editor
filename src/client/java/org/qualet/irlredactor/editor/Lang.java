@@ -1,6 +1,6 @@
 package org.qualet.irlredactor.editor;
 
-import net.minecraft.client.resource.language.I18n;
+import net.minecraft.client.resources.language.I18n;
 
 /**
  * Thin wrapper over Minecraft's client {@link I18n} so the ImGui editor follows
@@ -23,6 +23,6 @@ public final class Lang
      *  ({@code I18n.translate} runs {@code String.format} on the template). */
     public static String t(String key, Object... args)
     {
-        return I18n.translate(key, args);
+        return I18n.get(key, args);
     }
 }

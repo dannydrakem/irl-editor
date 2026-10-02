@@ -2,16 +2,16 @@ package org.qualet.irlredactor.client;
 
 import java.util.Locale;
 
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.option.GameOptions;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.Options;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Camera;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
 
 import org.qualet.irlredactor.editor.GuideOverlay;
@@ -121,9 +121,9 @@ public final class FreeCamera
      */
     public static void toggle()
     {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        ClientPlayerEntity player = mc.player;
-        if (player == null || mc.world == null)
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null || mc.level == null)
         {
             active = false;
             return;
@@ -138,8 +138,8 @@ public final class FreeCamera
             // from the eye again.
             if (!posValid)
             {
-                Camera cam = mc.gameRenderer.getCamera();
-                Vec3d start = cam != null && cam.isReady() ? cam.getCameraPos() : player.getEyePos();
+                Camera cam = mc.gameRenderer.mainCamera();
+                Vec3 start = cam != null && cam.isInitialized() ? cam.position() : player.getEyePosition();
                 x = start.x;
                 y = start.y;
                 z = start.z;
@@ -162,7 +162,7 @@ public final class FreeCamera
     {
         if (active)
         {
-            endLook(MinecraftClient.getInstance());
+            endLook(Minecraft.getInstance());
         }
         active = false;
         // Editor closed (or disconnected): forget the saved position so re-opening
@@ -171,7 +171,7 @@ public final class FreeCamera
     }
 
     /**
-     * Mouse-wheel speed control (from {@code FreeCamScrollMixin}); wheel up
+     * MouseHandler-wheel speed control (from {@code FreeCamScrollMixin}); wheel up
      * ({@code vertical > 0}) speeds up, snapped to the 0.2 step and clamped to
      * [0.2, 10.0].
      */
@@ -184,7 +184,7 @@ public final class FreeCamera
         double next = speed + Math.signum(vertical) * SPEED_STEP;
         // Snap to the step grid so the HUD always reads a clean "x.x".
         next = Math.round(next / SPEED_STEP) * SPEED_STEP;
-        speed = MathHelper.clamp(next, SPEED_MIN, SPEED_MAX);
+        speed = Mth.clamp(next, SPEED_MIN, SPEED_MAX);
     }
 
     /**
@@ -196,13 +196,13 @@ public final class FreeCamera
      */
     public static void advance()
     {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        ClientPlayerEntity player = mc.player;
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
         if (player == null)
         {
             return;
         }
-        long handle = mc.getWindow().getHandle();
+        long handle = mc.getWindow().handle();
 
         long now = System.nanoTime();
         double dt = (now - lastNanos) / 1_000_000_000.0;
@@ -221,16 +221,16 @@ public final class FreeCamera
         // Read movement raw so it works while the editor screen holds the cursor;
         // gated off while an ImGui text field is focused (typing a light's name).
         boolean typing = ImGuiInput.wantsKeyboard();
-        GameOptions o = mc.options;
-        boolean fwd = !typing && isKeyDown(handle, o.forwardKey);
-        boolean back = !typing && isKeyDown(handle, o.backKey);
-        boolean left = !typing && isKeyDown(handle, o.leftKey);
-        boolean right = !typing && isKeyDown(handle, o.rightKey);
-        boolean up = !typing && isKeyDown(handle, o.jumpKey);
-        boolean down = !typing && isKeyDown(handle, o.sneakKey);
+        Options o = mc.options;
+        boolean fwd = !typing && isKeyDown(handle, o.keyUp);
+        boolean back = !typing && isKeyDown(handle, o.keyDown);
+        boolean left = !typing && isKeyDown(handle, o.keyLeft);
+        boolean right = !typing && isKeyDown(handle, o.keyRight);
+        boolean up = !typing && isKeyDown(handle, o.keyJump);
+        boolean down = !typing && isKeyDown(handle, o.keyShift);
 
-        double yawRad = Math.toRadians(player.getYaw());
-        double pitchRad = Math.toRadians(player.getPitch());
+        double yawRad = Math.toRadians(player.getYRot());
+        double pitchRad = Math.toRadians(player.getXRot());
         double cosPitch = Math.cos(pitchRad);
 
         // Full look vector (matches Entity.getRotationVector) — fly where you look.
@@ -299,7 +299,7 @@ public final class FreeCamera
      * applied to the player (the camera follows it), matching vanilla feel via
      * {@code changeLookDirection}.
      */
-    private static void updateLook(MinecraftClient mc, ClientPlayerEntity player, long handle)
+    private static void updateLook(Minecraft mc, LocalPlayer player, long handle)
     {
         boolean lmb = GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
 
@@ -339,22 +339,22 @@ public final class FreeCamera
 
         if (dx != 0.0 || dy != 0.0)
         {
-            double sens = mc.options.getMouseSensitivity().getValue();
+            double sens = mc.options.sensitivity().get();
             double f = sens * 0.6 + 0.2;
             double g = f * f * f * 8.0;
-            player.changeLookDirection(dx * g, dy * g);
+            player.turn(dx * g, dy * g);
         }
     }
 
     /** Release the look grab, restoring the free cursor at the saved position. */
-    private static void endLook(MinecraftClient mc)
+    private static void endLook(Minecraft mc)
     {
         if (!lookActive)
         {
             return;
         }
         lookActive = false;
-        long handle = mc.getWindow().getHandle();
+        long handle = mc.getWindow().handle();
         GLFW.glfwSetInputMode(handle, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
         GLFW.glfwSetCursorPos(handle, savedCursorX, savedCursorY);
     }
@@ -364,11 +364,11 @@ public final class FreeCamera
      * rebind). Used for both the toggle and the movement keys so they work behind
      * the editor screen, where the vanilla keybind state is frozen.
      */
-    public static boolean isKeyDown(long handle, KeyBinding bind)
+    public static boolean isKeyDown(long handle, KeyMapping bind)
     {
-        InputUtil.Key key = KeyBindingHelper.getBoundKeyOf(bind);
-        int code = key.getCode();
-        switch (key.getCategory())
+        InputConstants.Key key = KeyMappingHelper.getBoundKeyOf(bind);
+        int code = key.getValue();
+        switch (key.getType())
         {
             case KEYSYM:
                 return code != GLFW.GLFW_KEY_UNKNOWN
@@ -393,38 +393,38 @@ public final class FreeCamera
         {
             return;
         }
-        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        LocalPlayer player = Minecraft.getInstance().player;
         if (player == null)
         {
             return;
         }
-        player.setVelocity(0.0, 0.0, 0.0);
-        player.setPosition(freezeX, freezeY, freezeZ);
+        player.setDeltaMovement(0.0, 0.0, 0.0);
+        player.setPos(freezeX, freezeY, freezeZ);
         player.fallDistance = 0.0f;
     }
 
     /**
-     * HUD indicator (registered as a {@code HudRenderCallback} in
+     * HUD indicator (registered as a Fabric HUD element in
      * {@code IRLRedactorClient}): "Free Camera" + "Speed x.x", centred just above
      * the hotbar. Draws nothing while inactive.
      */
-    public static void renderHud(DrawContext ctx)
+    public static void renderHud(GuiGraphicsExtractor ctx)
     {
         if (!active)
         {
             return;
         }
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.textRenderer == null)
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.font == null)
         {
             return;
         }
 
         // "Speed x.x" only, tucked into the bottom-right corner.
         String speedText = String.format(Locale.ROOT, "Speed %.1f", speed);
-        int w = mc.textRenderer.getWidth(speedText);
-        int px = mc.getWindow().getScaledWidth() - w - 6;
-        int py = mc.getWindow().getScaledHeight() - 14;
-        ctx.drawText(mc.textRenderer, speedText, px, py, 0xFFFFFFFF, true);
+        int w = mc.font.width(speedText);
+        int px = mc.getWindow().getGuiScaledWidth() - w - 6;
+        int py = mc.getWindow().getGuiScaledHeight() - 14;
+        ctx.text(mc.font, speedText, px, py, 0xFFFFFFFF, true);
     }
 }

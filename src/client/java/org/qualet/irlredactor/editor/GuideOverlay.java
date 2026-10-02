@@ -5,9 +5,9 @@ import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.ImVec2;
 import imgui.flag.ImGuiMouseCursor;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.Camera;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Camera;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
@@ -113,17 +113,17 @@ public final class GuideOverlay
      */
     public void frame(LightState state, PlacedLight selected, boolean allowInput)
     {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         handleActive = false;
-        Camera cam = mc.gameRenderer == null ? null : mc.gameRenderer.getCamera();
-        if (cam == null || mc.world == null || mc.getWindow().getFramebufferHeight() == 0)
+        Camera cam = mc.gameRenderer == null ? null : mc.gameRenderer.mainCamera();
+        if (cam == null || mc.level == null || mc.getWindow().getHeight() == 0)
         {
             drag = NONE;
             return;
         }
 
         buildMatrices(cam, mc);
-        Vec3d cp = cam.getCameraPos();
+        Vec3 cp = cam.position();
 
         // ---- selected spotlight: drag + local frame ------------------------
         boolean selSpot = selected != null && state.type == LightState.Type.SPOT;
@@ -193,17 +193,17 @@ public final class GuideOverlay
     /** Reconstruct MC's world camera exactly as the move gizmo does (view = camera
      *  rotation only, world kept camera-relative; a perspective with the live FOV +
      *  framebuffer aspect), so guides register with the rendered world + the gizmo. */
-    private void buildMatrices(Camera cam, MinecraftClient mc)
+    private void buildMatrices(Camera cam, Minecraft mc)
     {
         dispW = ImGui.getIO().getDisplaySizeX();
         dispH = ImGui.getIO().getDisplaySizeY();
-        float aspect = (float) mc.getWindow().getFramebufferWidth()
-            / (float) mc.getWindow().getFramebufferHeight();
-        double fovDeg = mc.options.getFov().getValue();
+        float aspect = (float) mc.getWindow().getWidth()
+            / (float) mc.getWindow().getHeight();
+        double fovDeg = mc.options.fov().get();
 
         view.identity()
-            .rotateX((float) Math.toRadians(cam.getPitch()))
-            .rotateY((float) Math.toRadians(cam.getYaw() + 180.0));
+            .rotateX((float) Math.toRadians(cam.xRot()))
+            .rotateY((float) Math.toRadians(cam.yRot() + 180.0));
         proj.identity().perspective((float) Math.toRadians(fovDeg), aspect, 0.05f, 1000f);
         viewProj.set(proj).mul(view);
         invViewProj.set(viewProj).invert();
@@ -226,7 +226,7 @@ public final class GuideOverlay
         return true;
     }
 
-    /** Mouse pixel -> camera-relative world ray (origin on the near plane, unit dir). */
+    /** MouseHandler pixel -> camera-relative world ray (origin on the near plane, unit dir). */
     private void mouseRay()
     {
         ImVec2 m = ImGui.getMousePos();

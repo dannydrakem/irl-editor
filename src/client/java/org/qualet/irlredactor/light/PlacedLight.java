@@ -39,7 +39,7 @@ public class PlacedLight
     /** Absolute world position. */
     public double x, y, z;
 
-    /** World-space direction the spotlight points (local +Z); normalized by the
+    /** Level-space direction the spotlight points (local +Z); normalized by the
      *  driver. Ignored for point lights. Defaults to straight down. */
     public float dirX = 0f, dirY = -1f, dirZ = 0f;
 

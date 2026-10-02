@@ -4,13 +4,14 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.ChunkSection;
-import net.minecraft.world.chunk.WorldChunk;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.qualet.irl.light.iris.IrisShadersState;
 import org.qualet.irlredactor.light.LightConfig;
 import org.qualet.irlredactor.light.PlacedLight;
@@ -41,7 +42,7 @@ import java.util.function.Predicate;
  * {@link #SECTIONS_PER_TICK} emissive sections, then pausing. When the cursor
  * wraps the whole range, the pass completes (evicting blocks no longer seen) and
  * a fresh pass starts — so the set refreshes continuously roughly once per second
- * with a small, bounded per-tick cost. World edits need no explicit signal; the
+ * with a small, bounded per-tick cost. Level edits need no explicit signal; the
  * rolling pass picks them up within a cycle.
  *
  * <h2>Surface culling</h2>
@@ -188,7 +189,7 @@ public final class AutoLightManager
      * continuously without ever doing the whole (potentially huge) scan in a
      * single tick.
      */
-    public static void tick(ClientWorld world, double centerX, double centerY, double centerZ)
+    public static void tick(ClientLevel world, double centerX, double centerY, double centerZ)
     {
         if (!LightConfig.autoLights() || world == null)
         {
@@ -241,7 +242,7 @@ public final class AutoLightManager
     }
 
     /** Advance the current pass by up to a tick's worth of work, then pause. */
-    private static void stepPass(ClientWorld world)
+    private static void stepPass(ClientLevel world)
     {
         int total = passSpanX * passSpanZ;
         int chunksThisTick = 0;
@@ -256,7 +257,7 @@ public final class AutoLightManager
 
             int chunkX = passMinChunkX + (idx % passSpanX);
             int chunkZ = passMinChunkZ + (idx / passSpanX);
-            WorldChunk chunk = world.getChunkManager().getWorldChunk(chunkX, chunkZ, false);
+            LevelChunk chunk = world.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, false);
             if (chunk == null)
             {
                 continue;
@@ -287,18 +288,18 @@ public final class AutoLightManager
 
     /** Full-scan one chunk's in-range emissive sections; returns how many sections
      *  were full-scanned (for the per-tick section budget). */
-    private static int scanChunk(ClientWorld world, WorldChunk chunk, int chunkX, int chunkZ)
+    private static int scanChunk(ClientLevel world, LevelChunk chunk, int chunkX, int chunkZ)
     {
-        ChunkSection[] sections = chunk.getSectionArray();
-        int bottomY = chunk.getBottomY();
+        LevelChunkSection[] sections = chunk.getSections();
+        int bottomY = chunk.getMinY();
         int baseX = chunkX << 4;
         int baseZ = chunkZ << 4;
         int fullScanned = 0;
 
         for (int s = 0; s < sections.length; s++)
         {
-            ChunkSection sec = sections[s];
-            if (sec == null || sec.isEmpty())
+            LevelChunkSection sec = sections[s];
+            if (sec == null || sec.hasOnlyAir())
             {
                 continue;
             }
@@ -308,7 +309,7 @@ public final class AutoLightManager
             {
                 continue; // section's whole 16-block band is outside the sphere bbox
             }
-            if (!sec.hasAny(EMISSIVE))
+            if (!sec.maybeHas(EMISSIVE))
             {
                 continue; // palette pre-check: no emitter in this section
             }
@@ -411,14 +412,14 @@ public final class AutoLightManager
 
     /** Reused scratch position for the six neighbour lookups in {@link #isOpen}
      *  (render/client thread only — never overlaps with {@link #nearest}). */
-    private static final BlockPos.Mutable NB = new BlockPos.Mutable();
+    private static final BlockPos.MutableBlockPos NB = new BlockPos.MutableBlockPos();
 
     /**
      * Is the emitter at (wx,wy,wz) EXPOSED — does at least one of its six
      * face-neighbours open onto visible space? Short-circuits on the first opening,
      * so a surface block is cheap; only a fully buried block pays for all six.
      */
-    private static boolean isExposed(ClientWorld world, ChunkSection sec,
+    private static boolean isExposed(ClientLevel world, LevelChunkSection sec,
                                      int lx, int ly, int lz,
                                      int wx, int wy, int wz)
     {
@@ -445,12 +446,12 @@ public final class AutoLightManager
      * Everything else — air, glass, water, slabs, fences, leaves, … — is an opening
      * the light escapes through, so the emitter stays lit.
      *
-     * <p>In-section neighbours are read straight from the {@link ChunkSection}
+     * <p>In-section neighbours are read straight from the {@link LevelChunkSection}
      * (a cheap array access); only boundary crossings fall back to a full world
      * lookup. A neighbour in an unloaded chunk reads as air (open) — we keep the
      * light rather than risk culling something that might be visible.</p>
      */
-    private static boolean isOpen(ClientWorld world, ChunkSection sec,
+    private static boolean isOpen(ClientLevel world, LevelChunkSection sec,
                                   int lx, int ly, int lz,
                                   int wx, int wy, int wz)
     {
@@ -473,7 +474,7 @@ public final class AutoLightManager
      *  opaque full cube (buries the emitter); open for everything else — air,
      *  glass, water, slabs, fences, leaves, … ({@code world}/{@code pos} are kept
      *  in the signature for parity with the other MC versions; unused here). */
-    private static boolean isOpenState(ClientWorld world, BlockState n, BlockPos pos)
+    private static boolean isOpenState(ClientLevel world, BlockState n, BlockPos pos)
     {
         if (BlockLightDefs.resolve(n) != null)
         {
@@ -481,7 +482,7 @@ public final class AutoLightManager
         }
         // 1.21.2+ dropped isOpaqueFullCube(BlockView, BlockPos) for the cached no-arg
         // overload; the value (opaque full cube) is the same for culling.
-        return !n.isOpaqueFullCube(); // opaque full cube -> closed; else open
+        return !n.isSolidRender(); // opaque full cube -> closed; else open
     }
 
     // Face-neighbour offsets (±x, ±y, ±z) for the combined sweep below.
@@ -500,9 +501,9 @@ public final class AutoLightManager
      * 1.. = how many neighbours are the SAME block (its cluster density — for the
      * merge gate). Combined into a single pass so glowstone / lava, which need both,
      * don't walk their neighbourhood twice. In-section neighbours are read straight
-     * from the {@link ChunkSection}; only boundary crossings hit the world.
+     * from the {@link LevelChunkSection}; only boundary crossings hit the world.
      */
-    private static long neighborSweep(ClientWorld world, ChunkSection sec, Block self,
+    private static long neighborSweep(ClientLevel world, LevelChunkSection sec, Block self,
                                       int lx, int ly, int lz, int wx, int wy, int wz)
     {
         boolean exposed = false;
@@ -535,7 +536,7 @@ public final class AutoLightManager
      * (beyond {@link #FEED_RESORT_DIST2}) changed since the last build — NOT every
      * call. See the feed-cache fields.</p>
      */
-    public static List<PlacedLight> nearest(Vec3d cameraPos, int max)
+    public static List<PlacedLight> nearest(Vec3 cameraPos, int max)
     {
         // max <= 0 means feed nothing (the cap slider at 0 = no auto-lights).
         if (byPos.isEmpty() || cameraPos == null || max <= 0)

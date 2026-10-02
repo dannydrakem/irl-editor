@@ -15,6 +15,19 @@
 
 ---
 
+> [!IMPORTANT]
+> **Community-maintained Minecraft 26.2 port.** This fork preserves the original
+> project and authorship by [qualet](https://github.com/quaIett). The `port/26.2`
+> branch targets Minecraft 26.2 / Java 25 and includes the shadow-depth fix
+> validated for point lights and spotlights. See
+> [the 26.2 port notes](docs/PORTING-26.2.md).
+>
+> **Неофициальный порт сообщества на Minecraft 26.2.** Исходный проект и авторство
+> принадлежат [qualet](https://github.com/quaIett). Подробности, сборка и известные
+> ограничения описаны в [документации порта](docs/PORTING-26.2-RU.md).
+
+---
+
 ## What is IRL-editor?
 
 IRL-editor is a client-side Fabric mod that brings the [IRLights](https://github.com/quaIett/bbs-irlights-addon)
@@ -54,6 +67,7 @@ Each Minecraft version lives on its own branch — pick the one that matches you
 | [`port/1.21.1`](https://github.com/quaIett/irl-editor/tree/port/1.21.1) | **1.21.1** | |
 | [`port/1.21.4`](https://github.com/quaIett/irl-editor/tree/port/1.21.4) | **1.21.4** | |
 | [`port/1.21.11`](https://github.com/quaIett/irl-editor/tree/port/1.21.11) | **1.21.11** | raw-GL shadow path |
+| `port/26.2` | **26.2** | community port; Java 25; fixed clip-depth convention |
 
 ---
 
@@ -129,5 +143,8 @@ The editor consumes the shared [irl-core](https://github.com/quaIett/irl-core) e
 ## License
 
 Released under the [MIT License](LICENSE) — © 2026 qualet.
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the original author and community
+port attribution.
 
 Third-party shaderpacks referenced by the patcher remain under the licenses of their respective authors.

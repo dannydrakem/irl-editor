@@ -1,8 +1,8 @@
 package org.qualet.irlredactor.mixin.client;
 
-import net.minecraft.client.Keyboard;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.KeyboardHandler;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
 import org.qualet.irlredactor.imgui.ImGuiInput;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -15,16 +15,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * Gated on WantCaptureKeyboard, which — with keyboard nav disabled (see
  * {@code ImGuiRuntime}) — is true only while a text input is focused.
  *
- * <p>1.21.11 wraps the raw GLFW key/char events in {@code KeyInput} / {@code CharInput}
- * records, so {@code onKey} is {@code (long, int, KeyInput)} and {@code onChar} is
- * {@code (long, CharInput)} here (were {@code (long,int,int,int,int)} /
- * {@code (long,int,int)} on 1.20.4).</p>
+ * <p>26.2 routes the event records through {@code keyPress} and
+ * {@code charTyped}; these injections run before Minecraft consumes them.</p>
  */
-@Mixin(Keyboard.class)
+@Mixin(KeyboardHandler.class)
 public class KeyboardImGuiMixin
 {
-    @Inject(method = "onKey(JILnet/minecraft/client/input/KeyInput;)V", at = @At("HEAD"), cancellable = true)
-    private void irl$captureKey(long window, int key, KeyInput input, CallbackInfo ci)
+    @Inject(method = "keyPress(JILnet/minecraft/client/input/KeyEvent;)V", at = @At("HEAD"), cancellable = true)
+    private void irl$captureKey(long window, int key, KeyEvent input, CallbackInfo ci)
     {
         if (ImGuiInput.wantsKeyboard())
         {
@@ -32,8 +30,8 @@ public class KeyboardImGuiMixin
         }
     }
 
-    @Inject(method = "onChar(JLnet/minecraft/client/input/CharInput;)V", at = @At("HEAD"), cancellable = true)
-    private void irl$captureChar(long window, CharInput input, CallbackInfo ci)
+    @Inject(method = "charTyped(JLnet/minecraft/client/input/CharacterEvent;)V", at = @At("HEAD"), cancellable = true)
+    private void irl$captureChar(long window, CharacterEvent input, CallbackInfo ci)
     {
         if (ImGuiInput.wantsKeyboard())
         {

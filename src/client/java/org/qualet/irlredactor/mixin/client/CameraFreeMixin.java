@@ -1,8 +1,9 @@
 package org.qualet.irlredactor.mixin.client;
 
-import net.minecraft.client.render.Camera;
-import net.minecraft.entity.Entity;
-import net.minecraft.world.World;
+import net.minecraft.client.Camera;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.Level;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -13,7 +14,8 @@ import org.qualet.irlredactor.client.FreeCamera;
 
 /**
  * Free-fly camera: overrides the camera position (only) with {@link FreeCamera}'s
- * fly position while it's active. Injected at the TAIL of {@code Camera.update} so
+ * fly position while it's active. Injected at the TAIL of 26.2's
+ * {@code Camera.update(DeltaTracker)} so
  * it runs after vanilla has set the position from the focused entity, and the
  * light SSBO upload (which reads the camera a moment later in {@code renderWorld}
  * — see {@code GameRendererLightMixin}) sees the free-camera eye. Rotation is left
@@ -23,19 +25,17 @@ import org.qualet.irlredactor.client.FreeCamera;
 public abstract class CameraFreeMixin
 {
     @Shadow
-    protected abstract void setPos(double x, double y, double z);
+    protected abstract void setPosition(double x, double y, double z);
 
     @Inject(
-        // 1.21.11: Camera.update's first parameter is World (was BlockView on 1.20.x).
-        method = "update(Lnet/minecraft/world/World;Lnet/minecraft/entity/Entity;ZZF)V",
+        method = "update(Lnet/minecraft/client/DeltaTracker;)V",
         at = @At("TAIL"))
-    private void irl$freeCamera(World area, Entity focusedEntity, boolean thirdPerson,
-                                boolean inverseView, float tickDelta, CallbackInfo ci)
+    private void irl$freeCamera(DeltaTracker deltaTracker, CallbackInfo ci)
     {
         if (FreeCamera.isActive())
         {
             FreeCamera.advance();
-            this.setPos(FreeCamera.x(), FreeCamera.y(), FreeCamera.z());
+            this.setPosition(FreeCamera.x(), FreeCamera.y(), FreeCamera.z());
         }
     }
 }

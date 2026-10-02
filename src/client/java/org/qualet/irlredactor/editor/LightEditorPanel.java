@@ -9,9 +9,9 @@ import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiWindowFlags;
 import imgui.type.ImBoolean;
 import imgui.type.ImString;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.Camera;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Camera;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.qualet.irl.light.LightMath;
@@ -380,7 +380,7 @@ public class LightEditorPanel
     private void addLight()
     {
         PlacedLight l = PlacedLight.point();
-        Vec3d eye = playerEye();
+        Vec3 eye = playerEye();
         if (eye != null)
         {
             l.x = eye.x; l.y = eye.y; l.z = eye.z;
@@ -589,7 +589,7 @@ public class LightEditorPanel
 
         if (Widgets.button("place_here", Lang.t("irl-redactor.editor.moveHere"), ImGui.getContentRegionAvail().x, false))
         {
-            Vec3d eye = playerEye();
+            Vec3 eye = playerEye();
             if (eye != null)
             {
                 state.pos[0] = eye.x;
@@ -604,7 +604,7 @@ public class LightEditorPanel
                 fmt(state.dir[0]), fmt(state.dir[1]), fmt(state.dir[2])));
             if (Widgets.button("aim_look", Lang.t("irl-redactor.editor.aimLook"), ImGui.getContentRegionAvail().x, false))
             {
-                Vec3d look = playerLook();
+                Vec3 look = playerLook();
                 if (look != null)
                 {
                     state.dir[0] = (float) look.x;
@@ -739,7 +739,7 @@ public class LightEditorPanel
         {
             java.nio.file.Path d = CookieArray.dir();
             java.nio.file.Files.createDirectories(d);
-            net.minecraft.util.Util.getOperatingSystem().open(d.toFile());
+            net.minecraft.util.Util.getPlatform().openFile(d.toFile());
         }
         catch (Exception ignored)
         {
@@ -1143,22 +1143,22 @@ public class LightEditorPanel
      */
     private void drawGizmo()
     {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        Camera cam = mc.gameRenderer == null ? null : mc.gameRenderer.getCamera();
-        if (cam == null || mc.world == null || mc.getWindow().getFramebufferHeight() == 0)
+        Minecraft mc = Minecraft.getInstance();
+        Camera cam = mc.gameRenderer == null ? null : mc.gameRenderer.mainCamera();
+        if (cam == null || mc.level == null || mc.getWindow().getHeight() == 0)
         {
             return;
         }
 
         boolean spot = state.type == LightState.Type.SPOT;
-        Vec3d cp = cam.getCameraPos();
-        float aspect = (float) mc.getWindow().getFramebufferWidth() / (float) mc.getWindow().getFramebufferHeight();
-        double fovDeg = mc.options.getFov().getValue();
+        Vec3 cp = cam.position();
+        float aspect = (float) mc.getWindow().getWidth() / (float) mc.getWindow().getHeight();
+        double fovDeg = mc.options.fov().get();
 
         // View = camera rotation only; world is kept camera-relative via the model.
         mat.identity()
-            .rotateX((float) Math.toRadians(cam.getPitch()))
-            .rotateY((float) Math.toRadians(cam.getYaw() + 180.0));
+            .rotateX((float) Math.toRadians(cam.xRot()))
+            .rotateY((float) Math.toRadians(cam.yRot() + 180.0));
         mat.get(gizmoView);
 
         mat.identity().perspective((float) Math.toRadians(fovDeg), aspect, 0.05f, 1000f);
@@ -1229,15 +1229,15 @@ public class LightEditorPanel
         return String.format(java.util.Locale.ROOT, "%.2f", v);
     }
 
-    private static Vec3d playerEye()
+    private static Vec3 playerEye()
     {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        return mc.player == null ? null : new Vec3d(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ());
+        Minecraft mc = Minecraft.getInstance();
+        return mc.player == null ? null : new Vec3(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ());
     }
 
-    private static Vec3d playerLook()
+    private static Vec3 playerLook()
     {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        return mc.player == null ? null : mc.player.getRotationVector();
+        Minecraft mc = Minecraft.getInstance();
+        return mc.player == null ? null : mc.player.getLookAngle();
     }
 }

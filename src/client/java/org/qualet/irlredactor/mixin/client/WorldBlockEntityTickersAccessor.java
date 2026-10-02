@@ -1,15 +1,15 @@
 package org.qualet.irlredactor.mixin.client;
 
-import net.minecraft.world.World;
-import net.minecraft.world.chunk.BlockEntityTickInvoker;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.TickingBlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.List;
 
-@Mixin(World.class)
+@Mixin(Level.class)
 public interface WorldBlockEntityTickersAccessor
 {
     @Accessor("blockEntityTickers")
-    List<BlockEntityTickInvoker> irlite$getBlockEntityTickers();
+    List<TickingBlockEntity> irlite$getBlockEntityTickers();
 }

@@ -167,8 +167,11 @@ public final class LightConfig
     // applies live on UBO-era patched packs. Defaults mirror the packs' compiled
     // IRLITE_OUTLINE_* defines and match the BBS addon's outline settings 1:1.
 
-    /** Master outline toggle (default on). */
-    public static boolean outline = true;
+    /** Master outline toggle (default off). The effect is a deliberately
+     *  stylised depth/Fresnel rim, not part of the physical light response;
+     *  enabling it by default makes ordinary lamps look as if light leaks
+     *  around block and entity silhouettes. */
+    public static boolean outline = false;
     /** What the outline draws on: 0 all / 1 entities / 2 blocks (default 1). */
     public static int outlineTarget = 1;
     /** Outline strength (0..3, default 0.65). */

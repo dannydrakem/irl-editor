@@ -3,16 +3,16 @@ package org.qualet.irlredactor.client;
 import imgui.ImGui;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ServerInfo;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.KeyMapping;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.WorldSavePath;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.storage.LevelResource;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL30;
 import org.qualet.irl.light.IrlSamplers;
@@ -45,13 +45,13 @@ import java.nio.file.Path;
  */
 public class IRLRedactorClient implements ClientModInitializer
 {
-    private static KeyBinding openEditor;
-    private static KeyBinding freeCamera;
+    private static KeyMapping openEditor;
+    private static KeyMapping freeCamera;
 
     /** Keybind category. 1.21.11 replaced the plain String category with a
-     *  registered {@link KeyBinding.Category} keyed by an Identifier. */
-    private static final KeyBinding.Category CATEGORY =
-        KeyBinding.Category.create(Identifier.of("irl-redactor", "main"));
+     *  registered {@link KeyMapping.Category} keyed by an Identifier. */
+    private static final KeyMapping.Category CATEGORY =
+        KeyMapping.Category.register(Identifier.fromNamespaceAndPath("irl-redactor", "main"));
 
     /** Key of the world currently joined (folder name SP / address MP), or null. */
     private static String currentWorldKey;
@@ -75,9 +75,11 @@ public class IRLRedactorClient implements ClientModInitializer
         // Dev GPU profiler (editor "perf" section): wire the core-side bake probe
         // and the HUD overlay unconditionally — every call is a cheap no-op until
         // the user flips the runtime toggle (VlProfiler.setCollecting).
-        HudRenderCallback.EVENT.register((ctx, tickDelta) -> VlProfiler.renderHud(ctx));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("irl-redactor", "profiler"),
+            (ctx, tickDelta) -> VlProfiler.renderHud(ctx));
         // Free-fly camera "Speed x.x" indicator (no-op while the camera is off).
-        HudRenderCallback.EVENT.register((ctx, tickDelta) -> FreeCamera.renderHud(ctx));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("irl-redactor", "free_camera"),
+            (ctx, tickDelta) -> FreeCamera.renderHud(ctx));
         ShadowEngine.installBakeProbe(new ShadowBakeProbe()
         {
             @Override
@@ -101,20 +103,20 @@ public class IRLRedactorClient implements ClientModInitializer
         // rebound from its 2D registration to GL_TEXTURE_2D_ARRAY at bind time.
         IrlSamplers.register("irl_cookieArray", CookieArray::getGlTextureId, GL30.GL_TEXTURE_2D_ARRAY);
 
-        openEditor = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        openEditor = KeyMappingHelper.registerKeyMapping(new KeyMapping(
             "key.irl-redactor.open_editor",
-            InputUtil.Type.KEYSYM,
+            InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_J,
-            // 1.21.11: KeyBinding.Category (registered Identifier) replaced the plain
+            // 1.21.11: KeyMapping.Category (registered Identifier) replaced the plain
             // String category — see the CATEGORY field.
             CATEGORY
         ));
 
-        freeCamera = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        freeCamera = KeyMappingHelper.registerKeyMapping(new KeyMapping(
             "key.irl-redactor.free_camera",
-            InputUtil.Type.KEYSYM,
+            InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_F,
-            // 1.21.11: KeyBinding.Category replaced the plain String category (see CATEGORY).
+            // 1.21.11: KeyMapping.Category replaced the plain String category (see CATEGORY).
             CATEGORY
         ));
 
@@ -147,20 +149,20 @@ public class IRLRedactorClient implements ClientModInitializer
      * Editor toggle. The J key has two paths:
      * <ul>
      *   <li><b>In a replay</b> — a raw GLFW read of J toggles the detached overlay,
-     *       bypassing Minecraft's KeyBinding routing (fires only with no screen
+     *       bypassing Minecraft's KeyMapping routing (fires only with no screen
      *       open) and Replay Mod's contextual-keybind remapping, both of which
      *       swallow J while the timeline screen is up.</li>
-     *   <li><b>Otherwise</b> — the vanilla KeyBinding opens the host
+     *   <li><b>Otherwise</b> — the vanilla KeyMapping opens the host
      *       {@link LightEditorScreen}, only when nothing else is open (unchanged).</li>
      * </ul>
      */
-    private static void onEndClientTick(MinecraftClient client)
+    private static void onEndClientTick(Minecraft client)
     {
         // Auto block-lights: rescan the emissive blocks around the player when due
         // (throttled inside; no-op when the feature is off or there's no world).
-        if (client.world != null && client.player != null)
+        if (client.level != null && client.player != null)
         {
-            AutoLightManager.tick(client.world,
+            AutoLightManager.tick(client.level,
                 client.player.getX(), client.player.getEyeY(), client.player.getZ());
         }
 
@@ -168,7 +170,7 @@ public class IRLRedactorClient implements ClientModInitializer
         // the editor opens, and the bound key (default F, read raw — the vanilla
         // keybind can't fire behind a screen, so no clash with swap-offhand)
         // toggles it off/on within the session. Auto-off + position reset on close.
-        long fcHandle = client.getWindow().getHandle();
+        long fcHandle = client.getWindow().handle();
         boolean fcDown = FreeCamera.isKeyDown(fcHandle, freeCamera);
         boolean fcEdge = fcDown && !fcKeyWasDown;
         fcKeyWasDown = fcDown;
@@ -193,7 +195,7 @@ public class IRLRedactorClient implements ClientModInitializer
         }
         fcEditorWasOpen = editorOpen;
         // Drain the vanilla queue so an in-editor F press never leaks out later.
-        while (freeCamera.wasPressed())
+        while (freeCamera.consumeClick())
         {
         }
         FreeCamera.tickFreeze();
@@ -201,7 +203,7 @@ public class IRLRedactorClient implements ClientModInitializer
         // Drain the keybind queue every tick so a press made during a replay (fly-
         // camera mode, where the keybind does fire) can't leak out as a stale open.
         boolean keybindPressed = false;
-        while (openEditor.wasPressed())
+        while (openEditor.consumeClick())
         {
             keybindPressed = true;
         }
@@ -209,7 +211,7 @@ public class IRLRedactorClient implements ClientModInitializer
         // Raw front-edge detect for the editor's currently-bound key. Reads whatever
         // key/button the open-editor bind points at, so a rebind in Options → Controls
         // also drives the replay toggle — not the hard-coded default. See isBoundKeyDown.
-        long handle = client.getWindow().getHandle();
+        long handle = client.getWindow().handle();
         boolean down = isBoundKeyDown(handle);
         boolean rawPressed = down && !rawToggleDown;
         rawToggleDown = down;
@@ -220,10 +222,10 @@ public class IRLRedactorClient implements ClientModInitializer
         {
             // Toggle on EITHER signal:
             //   - keybindPressed fires in fly-camera mode (currentScreen == null, so
-            //     the vanilla KeyBinding is live) — and unlike the raw poll it never
+            //     the vanilla KeyMapping is live) — and unlike the raw poll it never
             //     misses a quick tap (it's edge-driven from the GLFW key callback);
             //   - rawPressed covers timeline mode, where Replay Mod's screen is open
-            //     and swallows the KeyBinding, so the raw GLFW read is the only signal.
+            //     and swallows the KeyMapping, so the raw GLFW read is the only signal.
             // Ignore J while ImGui has keyboard focus (typing a light's name).
             if ((rawPressed || keybindPressed) && !imguiWantsKeyboard())
             {
@@ -238,9 +240,9 @@ public class IRLRedactorClient implements ClientModInitializer
             {
                 LightEditorScreen.setVisible(false);
             }
-            if (keybindPressed && client.currentScreen == null)
+            if (keybindPressed && client.gui.screen() == null)
             {
-                client.setScreen(new LightEditorScreen());
+                client.gui.setScreen(new LightEditorScreen());
             }
         }
     }
@@ -254,9 +256,9 @@ public class IRLRedactorClient implements ClientModInitializer
      */
     private static boolean isBoundKeyDown(long handle)
     {
-        InputUtil.Key key = KeyBindingHelper.getBoundKeyOf(openEditor);
-        int code = key.getCode();
-        switch (key.getCategory())
+        InputConstants.Key key = KeyMappingHelper.getBoundKeyOf(openEditor);
+        int code = key.getValue();
+        switch (key.getType())
         {
             case KEYSYM:
                 return code != GLFW.GLFW_KEY_UNKNOWN
@@ -284,14 +286,14 @@ public class IRLRedactorClient implements ClientModInitializer
     }
 
     /** Folder name for singleplayer, server address for multiplayer; null if neither. */
-    private static String worldKey(MinecraftClient client)
+    private static String worldKey(Minecraft client)
     {
-        MinecraftServer server = client.getServer();
+        MinecraftServer server = client.getSingleplayerServer();
         if (server != null)
         {
             try
             {
-                Path root = server.getSavePath(WorldSavePath.ROOT);
+                Path root = server.getWorldPath(LevelResource.ROOT);
                 return "sp-" + sanitize(root.getFileName().toString());
             }
             catch (Exception e)
@@ -300,10 +302,10 @@ public class IRLRedactorClient implements ClientModInitializer
             }
         }
 
-        ServerInfo info = client.getCurrentServerEntry();
-        if (info != null && info.address != null && !info.address.isEmpty())
+        ServerData info = client.getCurrentServer();
+        if (info != null && info.ip != null && !info.ip.isEmpty())
         {
-            return "mp-" + sanitize(info.address);
+            return "mp-" + sanitize(info.ip);
         }
         return null;
     }

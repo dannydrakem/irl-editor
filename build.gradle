@@ -1,5 +1,5 @@
 plugins {
-	id 'fabric-loom' version '1.15.5'
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
 	id 'maven-publish'
 }
 
@@ -50,15 +50,13 @@ def imguiVersion = '1.89.0'
 
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
 	// --- Shared BBS-free engine: light SSBO + .irlights patcher (irl-core) ---
-	// Per-version Loom module from mavenLocal: modClientImplementation remaps it from
-	// intermediary to this mod's named mappings; `include` bundles it (JiJ). Publish it
+	// Per-version Loom module from mavenLocal; `include` bundles it (JiJ). Publish it
 	// with `gradlew publishToMavenLocal` in ../irl-core before building this mod.
-	modClientImplementation "org.qualet:irl-core:1.1.7"
+	clientImplementation "org.qualet:irl-core:1.1.7"
 	include "org.qualet:irl-core:1.1.7"
 
 	// imgui-java: binding + LWJGL3 backend (client only). LWJGL itself is provided
@@ -84,23 +82,23 @@ dependencies {
 
 	// --- IRLite lighting base (BBS-free port) ---
 	// Iris is referenced at compile time by the shadow-sampler mixins; Sodium is
-	// runtime-only. 1.21.11 ships LWJGL 3.3.6; the imgui `exclude group: 'org.lwjgl'`
+	// runtime-only. The imgui `exclude group: 'org.lwjgl'`
 	// above keeps the editor on MC's LWJGL, so no LWJGL pin is needed.
-	// Sodium mc1.21.11-0.8.7 is the exact build Iris 1.10.7 pins as its dependency.
-	modImplementation "maven.modrinth:iris:1.10.7+1.21.11-fabric"
-	modRuntimeOnly "maven.modrinth:sodium:mc1.21.11-0.8.7-fabric"
+	// Sodium 0.9.2 is the exact build Iris 1.11.4 pins as its dependency.
+	clientImplementation "maven.modrinth:iris:1.11.4+26.2-fabric"
+	clientRuntimeOnly "maven.modrinth:sodium:mc26.2-0.9.2-fabric"
 
 	// Iris runtime dependencies (not auto-pulled from the Modrinth artifact).
 	// glsl-transformer 3.x additionally pulls antlr4-runtime at runtime.
-	modRuntimeOnly "org.anarres:jcpp:1.4.14"
-	modRuntimeOnly "io.github.douira:glsl-transformer:3.0.0-pre3"
-	modRuntimeOnly "org.antlr:antlr4-runtime:4.13.1"
+	clientRuntimeOnly "org.anarres:jcpp:1.4.14"
+	clientRuntimeOnly "io.github.douira:glsl-transformer:3.0.0-pre3"
+	clientRuntimeOnly "org.antlr:antlr4-runtime:4.13.1"
 
 	// --- TEST HARNESS ONLY (runClient) ---
 	// NOT a dependency of the mod itself — the Replay Mod integration is gated by
 	// FabricLoader.isModLoaded("replaymod") + reflection. This only puts Replay Mod
 	// on the dev classpath so the editor can be tested inside a replay.
-	modRuntimeOnly "maven.modrinth:replaymod:1.21.11-2.6.26"
+	clientRuntimeOnly "maven.modrinth:replaymod:26.2-2.6.27"
 }
 
 processResources {
@@ -111,8 +109,8 @@ processResources {
 }
 
 java {
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 	withSourcesJar()
 }
 
@@ -130,8 +128,8 @@ jar {
 // Two separate leaks, both needed fixing:
 //  1. processIncludeJars stages includes into build/processIncludeJars and
 //     never prunes, so the previous coordinate's jar lingers there.
-//  2. remapJar appends its nested jars INTO THE EXISTING output jar instead of
-//     writing a fresh one, so a stale entry survives even when staging is
+//  2. jar can append its nested jars INTO THE EXISTING output jar instead of
+//     writing a fresh one, so a stale entry can survive even when staging is
 //     clean (verified: purging staging alone did not fix the bump case).
 // Purging the staging dir and deleting the output jar up front covers both.
 tasks.named("processIncludeJars") {
@@ -141,7 +139,7 @@ tasks.named("processIncludeJars") {
 	}
 }
 
-tasks.named("remapJar") {
+tasks.named("jar") {
 	outputs.upToDateWhen { false }
 	doFirst {
 		delete archiveFile

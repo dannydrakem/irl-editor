@@ -1,7 +1,7 @@
 package org.qualet.irlredactor.mixin.client;
 
-import net.minecraft.client.render.GameRenderer;
-import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.DeltaTracker;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -13,20 +13,18 @@ import org.qualet.irlredactor.light.LightDriver;
 
 /**
  * Per-frame entry point for the light + shadow pipeline. Thin delegate to the
- * shared {@link FramePipeline} (main structure); the only per-mod concern here is
- * the 1.21.11 inject target: {@code renderWorld(RenderTickCounter)} — the old
- * {@code (tickDelta, limitTime, MatrixStack)} signature is gone.
+ * shared {@link FramePipeline} (main structure). In 26.2 the world entry point is
+ * {@code renderLevel(DeltaTracker)}; camera update and render-state extraction have
+ * already completed before it is called.
  */
 @Mixin(GameRenderer.class)
 public class GameRendererLightMixin
 {
-    @Inject(method = "renderWorld", at = @At("HEAD"))
-    private void irlite$collectLights(RenderTickCounter tickCounter, CallbackInfo ci)
+    @Inject(method = "renderLevel", at = @At("HEAD"))
+    private void irlite$collectLights(DeltaTracker tickCounter, CallbackInfo ci)
     {
-        // 1.21.11: renderWorld(RenderTickCounter) — the old (tickDelta, limitTime,
-        // MatrixStack) parameters are gone, so derive the partial tick here
-        // (ignoreFreeze=true matches the previous always-advancing behaviour).
-        float tickDelta = tickCounter.getTickProgress(true);
+        // Derive the partial tick from the 26.2 DeltaTracker.
+        float tickDelta = tickCounter.getGameTimeDeltaPartialTick(true);
 
         // Dev GPU profiler (editor "perf" section): the shadow bake below runs
         // strictly before the Iris pass sequence, so its GL_TIME_ELAPSED bracket
@@ -42,29 +40,7 @@ public class GameRendererLightMixin
         FramePipeline.frame(tickDelta, IrisShadersState::shadersDisabled, LightDriver::collect,
             LightDriver::resetAutoShadowRamp);
         VlProfiler.endPass();
-    }
-
-    /**
-     * Deferred SSBO upload — the light buffer is made relative to the current-frame eye
-     * that the shaderpack reconstructs fragments against, not a stale camera.
-     *
-     * <p>Main-line (1.20.x) calls {@code Camera.update} inside {@code renderWorld} after HEAD,
-     * so it injects right after that call. 1.21.11 moved the camera update out: {@code render}
-     * invokes {@code updateCamera(RenderTickCounter)} (→ {@code Camera.update}) BEFORE it calls
-     * {@code renderWorld}, so the camera is already this frame's by the time HEAD runs. We still
-     * defer the upload to a strictly-later bytecode point than the HEAD collect — right after
-     * {@code updateCameraState(F)} (offset 42, the call that settles this frame's camera-derived
-     * render state) — so collect+bake at HEAD always runs first, and the upload lands well before
-     * {@code WorldRenderer.render} / Iris activation (offset ~502).</p>
-     */
-    @Inject(method = "renderWorld",
-            at = @At(value = "INVOKE",
-                     target = "Lnet/minecraft/client/render/GameRenderer;updateCameraState(F)V",
-                     shift = At.Shift.AFTER,
-                     ordinal = 0),
-            require = 1)
-    private void irlite$uploadLights(RenderTickCounter tickCounter, CallbackInfo ci)
-    {
+        // Camera.update and render-state extraction both complete before renderLevel in 26.2.
         FramePipeline.uploadIfPending();
     }
 }
